@@ -74,11 +74,63 @@
           for (var k in advMap) { if (a[k]) s.setProperty(advMap[k], a[k]); }
         }
       }
-      // Apply font early
-      if (t && t.font) {
-        var fm = {mono:"'Fira Code', monospace",sans:"system-ui, -apple-system, 'Segoe UI', sans-serif",serif:"Georgia, 'Times New Roman', serif"};
-        if (fm[t.font]) { s.setProperty('--font-family', fm[t.font]); }
-        else { s.setProperty('--font-family', "'" + t.font.replace(/'/g,'') + "', sans-serif"); }
+      // Apply custom font early if set
+      try {
+        var cf = localStorage.getItem('odysseus-custom-font');
+        if (cf) {
+          var isUrl = false;
+          var fontUrl = cf.trim();
+          var linkMatch = fontUrl.match(/href=["'](https?:\/\/[&?=\w.-]+)["']/i) || fontUrl.match(/(https?:\/\/\S+)/i);
+          if (linkMatch) {
+            fontUrl = linkMatch[1];
+            isUrl = true;
+          }
+          if (isUrl) {
+            var linkEl = document.createElement('link');
+            linkEl.id = 'odysseus-custom-font-link';
+            linkEl.rel = 'stylesheet';
+            linkEl.href = fontUrl;
+            document.head.appendChild(linkEl);
+            
+            var parsedFamily = null;
+            if (fontUrl.indexOf('fonts.googleapis.com') !== -1) {
+              try {
+                var urlObj = new URL(fontUrl);
+                var params = new URLSearchParams(urlObj.search);
+                var families = [];
+                params.forEach(function(value, key) {
+                  if (key === 'family') {
+                    families.push(value.split(':')[0].replace(/\+/g, ' '));
+                  }
+                });
+                if (families.length > 0) {
+                  parsedFamily = families.map(function(f) { return "'" + f + "'"; }).join(', ');
+                }
+              } catch(e){}
+            }
+            if (!parsedFamily) {
+              var famMatch = fontUrl.match(/[?&]family=([^&:]+)/i);
+              if (famMatch) {
+                parsedFamily = "'" + decodeURIComponent(famMatch[1]).replace(/\+/g, ' ') + "'";
+              }
+            }
+            if (parsedFamily) {
+              s.setProperty('--font-family', parsedFamily + ', sans-serif');
+            }
+          } else {
+            s.setProperty('--font-family', "'" + cf.replace(/'/g,'') + "', sans-serif");
+          }
+        } else if (t && t.font) {
+          var fm = {mono:"'Fira Code', monospace",sans:"system-ui, -apple-system, 'Segoe UI', sans-serif",serif:"Georgia, 'Times New Roman', serif"};
+          if (fm[t.font]) { s.setProperty('--font-family', fm[t.font]); }
+          else { s.setProperty('--font-family', "'" + t.font.replace(/'/g,'') + "', sans-serif"); }
+        }
+      } catch(e) {
+        if (t && t.font) {
+          var fm = {mono:"'Fira Code', monospace",sans:"system-ui, -apple-system, 'Segoe UI', sans-serif",serif:"Georgia, 'Times New Roman', serif"};
+          if (fm[t.font]) { s.setProperty('--font-family', fm[t.font]); }
+          else { s.setProperty('--font-family', "'" + t.font.replace(/'/g,'') + "', sans-serif"); }
+        }
       }
       // Apply density class on html
       if (t && t.density && t.density !== 'comfortable') {
@@ -580,6 +632,15 @@
               <span class="admin-slider"></span>
             </label>
           </div>
+        </div>
+        <div class="theme-fd-row" style="margin-top: 10px; flex-direction: column; align-items: stretch; gap: 4px; border-top: 1px dashed var(--border); padding-top: 10px;">
+          <label class="theme-fd-label">Or Custom Font (System Name or Google Fonts Link)</label>
+          <div style="display: flex; gap: 8px; width: 100%;">
+            <input type="text" id="set-custom-font-input" class="theme-fd-select" placeholder="e.g. Outfit or Google Fonts CSS URL..." style="flex: 1; min-width: 0; height: 32px; padding: 4px 8px; box-sizing: border-box; text-align: left;">
+            <button type="button" class="theme-io-btn" id="set-custom-font-apply-btn" style="height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 500;">Apply</button>
+            <button type="button" class="theme-io-btn" id="set-custom-font-clear-btn" style="height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; opacity: 0.6;">Clear</button>
+          </div>
+          <span id="set-custom-font-msg" style="font-size: 11px; margin-top: 2px; display: block; min-height: 15px;"></span>
         </div>
         <div class="theme-fd-row">
           <div class="theme-fd-group" style="flex:1 1 0;">
@@ -1809,6 +1870,7 @@
               </label>
             </div>
           </div>
+
           <div style="text-align:right;padding:0 4px;">
             <button type="button" class="admin-btn-sm" id="set-uiVisResetBtn" style="opacity:0.5;">Reset All</button>
           </div>

@@ -1534,6 +1534,8 @@ function initAppearance() {
   syncAppearanceCheckboxes();
   syncPrivacyCheckboxes();
 
+
+
   modalEl.querySelectorAll('[data-ui-key]').forEach(function(chk) {
     chk.addEventListener('change', async function() {
       var key = chk.dataset.uiKey;
@@ -4269,6 +4271,7 @@ export function open(tab) {
   resetWindowPlacement();
   modalEl.classList.remove('hidden');
   syncAdminVisibility();
+  
   const content = modalEl.querySelector('.settings-modal-content');
   if (tab) {
     modalEl.querySelectorAll('[data-settings-tab]').forEach(b => b.classList.toggle('active', b.dataset.settingsTab === tab));

@@ -101,6 +101,7 @@ export function saveCustomTheme(name, colors, opts) {
     if (opts.bgEffectIntensity !== undefined) entry.bgEffectIntensity = opts.bgEffectIntensity;
     if (opts.bgEffectSize !== undefined) entry.bgEffectSize = opts.bgEffectSize;
     if (opts.frosted !== undefined) entry.frosted = !!opts.frosted;
+    if (opts.customFont) entry.customFont = opts.customFont;
   }
   ct[name] = entry;
   _saveCustomThemes(ct);
@@ -369,17 +370,87 @@ function _injectFontFace(familyName, variants) {
   _injectedFonts.add(familyName);
 }
 
+export function parseGoogleFontFamily(url) {
+  try {
+    const urlObj = new URL(url);
+    const params = new URLSearchParams(urlObj.search);
+    const families = [];
+    for (const [key, value] of params.entries()) {
+      if (key === 'family') {
+        const name = value.split(':')[0].replace(/\+/g, ' ');
+        families.push(name);
+      }
+    }
+    if (families.length > 0) {
+      return families.map(f => `'${f}'`).join(', ');
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function applyCustomFont(value) {
+  if (!value) {
+    const linkEl = document.getElementById('odysseus-custom-font-link');
+    if (linkEl) linkEl.remove();
+    return;
+  }
+
+  let isUrl = false;
+  let fontUrl = value.trim();
+  const linkMatch = fontUrl.match(/href=["'](https?:\/\/[&?=\w.-]+)["']/i) || fontUrl.match(/(https?:\/\/\S+)/i);
+  if (linkMatch) {
+    fontUrl = linkMatch[1];
+    isUrl = true;
+  }
+
+  if (isUrl) {
+    let linkEl = document.getElementById('odysseus-custom-font-link');
+    if (!linkEl) {
+      linkEl = document.createElement('link');
+      linkEl.id = 'odysseus-custom-font-link';
+      linkEl.rel = 'stylesheet';
+      document.head.appendChild(linkEl);
+    }
+    linkEl.href = fontUrl;
+
+    let parsedFamily = null;
+    if (fontUrl.includes('fonts.googleapis.com')) {
+      parsedFamily = parseGoogleFontFamily(fontUrl);
+    }
+    if (!parsedFamily) {
+      const famMatch = fontUrl.match(/[?&]family=([^&:]+)/i);
+      if (famMatch) {
+        parsedFamily = `'${decodeURIComponent(famMatch[1]).replace(/\+/g, ' ')}'`;
+      }
+    }
+    if (parsedFamily) {
+      document.documentElement.style.setProperty('--font-family', `${parsedFamily}, sans-serif`);
+    }
+  } else {
+    const linkEl = document.getElementById('odysseus-custom-font-link');
+    if (linkEl) linkEl.remove();
+    document.documentElement.style.setProperty('--font-family', `'${value.replace(/'/g, "")}', sans-serif`);
+  }
+}
+
 export function applyFontDensity(font, density) {
   const f = font || DEFAULT_FONT;
   const d = density || DEFAULT_DENSITY;
-  let family = FONT_MAP[f];
-  if (!family && _customFonts[f]) {
-    // It's a custom font from the local folder
-    _injectFontFace(f, _customFonts[f]);
-    family = "'" + f + "', sans-serif";
+  
+  const customFont = localStorage.getItem('odysseus-custom-font');
+  if (customFont) {
+    applyCustomFont(customFont);
+  } else {
+    let family = FONT_MAP[f];
+    if (!family && _customFonts[f]) {
+      // It's a custom font from the local folder
+      _injectFontFace(f, _customFonts[f]);
+      family = "'" + f + "', sans-serif";
+    }
+    if (!family) family = FONT_MAP[DEFAULT_FONT];
+    document.documentElement.style.setProperty('--font-family', family);
   }
-  if (!family) family = FONT_MAP[DEFAULT_FONT];
-  document.documentElement.style.setProperty('--font-family', family);
+  
   document.documentElement.classList.remove('density-compact', 'density-spacious');
   if (d !== 'comfortable') document.documentElement.classList.add('density-' + d);
 }
@@ -458,6 +529,7 @@ export function save(name, colors, opts) {
     if (opts.bgEffectIntensity !== undefined && opts.bgEffectIntensity !== 1) obj.bgEffectIntensity = opts.bgEffectIntensity;
     if (opts.bgEffectSize !== undefined && opts.bgEffectSize !== 1) obj.bgEffectSize = opts.bgEffectSize;
     if (opts.frosted) obj.frosted = true;
+    if (opts.customFont) obj.customFont = opts.customFont;
   }
   Storage.setJSON(LS_KEY, obj);
   _syncToServer(obj);
@@ -672,6 +744,8 @@ export function initThemeUI() {
     if (sz) opts.bgEffectSize = parseFloat(sz.value) / 100;
     const fr = document.getElementById('theme-frosted-toggle');
     if (fr) opts.frosted = !!fr.checked;
+    const cf = localStorage.getItem('odysseus-custom-font');
+    if (cf) opts.customFont = cf;
     return opts;
   }
   function _saveFull(name, colors) { save(name, colors, _getOpts()); }
@@ -917,6 +991,13 @@ export function initThemeUI() {
     resetBtn.parentNode.replaceChild(newReset, resetBtn);
     newReset.addEventListener('click', () => {
       Storage.remove(LS_KEY);
+      localStorage.removeItem('odysseus-custom-font');
+      applyCustomFont(null);
+      const fontInput = document.getElementById('set-custom-font-input');
+      if (fontInput) fontInput.value = '';
+      const fontMsg = document.getElementById('set-custom-font-msg');
+      if (fontMsg) fontMsg.textContent = '';
+
       const colors = THEMES[DEFAULT_THEME];
       applyColors(colors);
       syncPickers(colors);
@@ -1175,6 +1256,73 @@ export function initThemeUI() {
     });
   }
 
+  // --- Custom Font controls in Theme Customize tab ---
+  const fontInput = document.getElementById('set-custom-font-input');
+  if (fontInput) {
+    fontInput.value = localStorage.getItem('odysseus-custom-font') || '';
+  }
+
+  const applyBtn = document.getElementById('set-custom-font-apply-btn');
+  const clearBtn = document.getElementById('set-custom-font-clear-btn');
+  const fontMsg = document.getElementById('set-custom-font-msg');
+
+  if (applyBtn && fontInput) {
+    const newApply = applyBtn.cloneNode(true);
+    applyBtn.parentNode.replaceChild(newApply, applyBtn);
+    newApply.addEventListener('click', function() {
+      const val = fontInput.value.trim();
+      if (!val) {
+        if (fontMsg) {
+          fontMsg.textContent = 'Please enter a font name or link';
+          fontMsg.style.color = 'var(--red)';
+        }
+        return;
+      }
+      
+      try {
+        localStorage.setItem('odysseus-custom-font', val);
+        const saved = getSaved();
+        applyFontDensity(saved ? saved.font : null, saved ? saved.density : null);
+        
+        if (fontMsg) {
+          fontMsg.textContent = 'Font applied';
+          fontMsg.style.color = 'var(--green, #50fa7b)';
+          setTimeout(() => { fontMsg.textContent = ''; }, 3000);
+        }
+      } catch (err) {
+        if (fontMsg) {
+          fontMsg.textContent = 'Failed to apply font';
+          fontMsg.style.color = 'var(--red)';
+        }
+      }
+    });
+  }
+
+  if (clearBtn && fontInput) {
+    const newClear = clearBtn.cloneNode(true);
+    clearBtn.parentNode.replaceChild(newClear, clearBtn);
+    newClear.addEventListener('click', function() {
+      fontInput.value = '';
+      try {
+        localStorage.removeItem('odysseus-custom-font');
+        applyCustomFont(null);
+        const saved = getSaved();
+        applyFontDensity(saved ? saved.font : null, saved ? saved.density : null);
+        
+        if (fontMsg) {
+          fontMsg.textContent = 'Font cleared';
+          fontMsg.style.color = 'var(--fg)';
+          setTimeout(() => { fontMsg.textContent = ''; }, 3000);
+        }
+      } catch (err) {
+        if (fontMsg) {
+          fontMsg.textContent = 'Failed to clear font';
+          fontMsg.style.color = 'var(--red)';
+        }
+      }
+    });
+  }
+
   // --- Color Harmony Generator (inside Advanced section) ---
   const harmonyGenBtnEl = document.getElementById('harmony-generate-btn');
   const harmonyAccentEl = document.getElementById('harmony-accent');
@@ -1252,6 +1400,8 @@ export function initThemeUI() {
       if (cur && cur.density) obj.density = cur.density;
       if (cur && cur.bgPattern) obj.bgPattern = cur.bgPattern;
       if (cur && cur.bgEffectColor) obj.bgEffectColor = cur.bgEffectColor;
+      const cf = localStorage.getItem('odysseus-custom-font');
+      if (cf) obj.customFont = cf;
       const json = JSON.stringify(obj, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -1301,6 +1451,19 @@ export function initThemeUI() {
       if (parsed.density) opts.density = parsed.density;
       if (parsed.bgPattern) opts.bgPattern = parsed.bgPattern;
       if (parsed.bgEffectColor) opts.bgEffectColor = parsed.bgEffectColor;
+      
+      if (parsed.customFont) {
+        opts.customFont = parsed.customFont;
+        localStorage.setItem('odysseus-custom-font', parsed.customFont);
+        const fontInput = document.getElementById('set-custom-font-input');
+        if (fontInput) fontInput.value = parsed.customFont;
+      } else {
+        localStorage.removeItem('odysseus-custom-font');
+        applyCustomFont(null);
+        const fontInput = document.getElementById('set-custom-font-input');
+        if (fontInput) fontInput.value = '';
+      }
+
       const result = saveCustomTheme(slug, colorData, opts);
       if (result === 'limit') { saveError.textContent = 'Max ' + MAX_CUSTOM_THEMES + ' custom themes. Delete one first.'; saveError.style.display = 'block'; return; }
       save(slug, colorData, opts);
